@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Premium Inventory Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+    margin:0;
+    font-family:Segoe UI;
+    background:#0f0f0f;
+    color:white;
+}
+
+.header{
+    padding:15px;
+    background:#1a1a1a;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+}
+
+select,input,button{
+    padding:10px;
+    border-radius:8px;
+    border:none;
+}
+
+button{
+    background:#00c6ff;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+.summary{
+    display:flex;
+    gap:20px;
+    padding:20px;
+    flex-wrap:wrap;
+}
+
+.card{
+    background:#1a1a1a;
+    padding:20px;
+    border-radius:12px;
+    flex:1;
+    min-width:200px;
+}
+
+.card h3{
+    color:#00c6ff;
+    margin:0;
+}
+
+#live-summary{
+    padding:20px;
+}
+
+.summary-box{
+    background:linear-gradient(145deg,#1a1a1a,#141414);
+    padding:20px;
+    border-radius:16px;
+    margin-bottom:20px;
+}
+
+.summary-title{
+    color:#00c6ff;
+    margin-bottom:15px;
+}
+
+.summary-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+    gap:15px;
+}
+
+.summary-item{
+    background:#111;
+    padding:15px;
+    border-radius:12px;
+    text-align:center;
+    border:1px solid #222;
+}
+
+.summary-item h4{
+    margin:0;
+    font-size:14px;
+    color:#aaa;
+}
+
+.summary-item p{
+    margin:5px 0 0;
+    font-size:18px;
+    font-weight:bold;
+    color:#00ffcc;
+}
+
+.products{
+    padding:20px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    gap:25px;
+}
+
+.product{
+    background:#1a1a1a;
+    border-radius:16px;
+    overflow:hidden;
+    transition:0.3s;
+}
+
+.product.low-stock{
+    border:2px solid red;
+}
+
+.product-img{
+    width:100%;
+    aspect-ratio:4/5;
+    object-fit:cover;
+}
+
+.product-info{
+    padding:15px;
+}
+
+.price{
+    color:#00ffcc;
+    font-weight:bold;
+}
+
+.modal{
+    display:none;
+    position:fixed;
+    left:0;
+    top:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.8);
+    justify-content:center;
+    align-items:center;
+}
+
+.modal img{
+    max-width:80%;
+    max-height:80%;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+<input type="text" id="search" placeholder="Search...">
+
+<select id="article"><option value="">All Articles</option></select>
+<select id="colour"><option value="">All Colours</option></select>
+<select id="size"><option value="">All Sizes</option></select>
+<select id="section"><option value="">All Sections</option></select>
+<select id="location"><option value="">All Locations</option></select>
+
+<button onclick="resetFilters()">Reset</button>
+</div>
+
+<div class="summary">
+<div class="card"><h3>Total Stock</h3><h2 id="total_stock"></h2></div>
+<div class="card"><h3>Total Value</h3><h2 id="total_value"></h2></div>
+<div class="card"><h3>Total Articles</h3><h2 id="total_articles"></h2></div>
+</div>
+
+<div id="live-summary"></div>
+
+<div class="products" id="products"></div>
+
+<div class="modal" id="modal">
+<img id="modal-img">
+</div>
+
+<script>
+
+let dropdownLoaded = false;
+
+async function loadData(params="") {
+    const res = await fetch("/filter" + params);
+    const response = await res.json();
+    render(response);
+}
+
+function render(response){
+
+    document.getElementById("total_stock").innerText = response.total_stock;
+    document.getElementById("total_value").innerText = "₹ " + response.total_value;
+    document.getElementById("total_articles").innerText = response.total_articles;
+
+    const container = document.getElementById("products");
+    container.innerHTML = "";
+
+    response.data.forEach(row=>{
+
+        const div = document.createElement("div");
+        div.className = "product";
+
+        if(parseInt(row["Total"]) <= 1){
+            div.classList.add("low-stock");
+        }
+
+        div.innerHTML = `
+            <img src="${row["Image URL"]}" class="product-img">
+            <div class="product-info">
+                <h3>${row["Article No"]}</h3>
+                <p>${row["Colour Name"]} | ${row["Size Name"]}</p>
+                <p>${row["Sub Section Name"]}</p>
+                <p>Location: ${row["Location"]}</p>
+                <p>Stock: ${row["Total"]}</p>
+                <p class="price">₹ ${row["CBS Value at MRP"]}</p>
+            </div>
+        `;
+
+        div.querySelector("img").onclick = function(){
+            document.getElementById("modal-img").src = row["Image URL"];
+            document.getElementById("modal").style.display="flex";
+        };
+
+        container.appendChild(div);
+    });
+
+    renderLiveSummary(response.category_summary, response.size_summary);
+
+    if(!dropdownLoaded){
+        populateDropdown("article", response.articles);
+        populateDropdown("colour", response.colours);
+        populateDropdown("size", response.sizes);
+        populateDropdown("section", response.sections);
+        populateDropdown("location", response.locations);
+        dropdownLoaded = true;
+    }
+}
+
+function renderLiveSummary(categoryData, sizeData){
+
+    let html = `
+    <div class="summary-box">
+        <div class="summary-title">Category Wise Stock</div>
+        <div class="summary-grid">`;
+
+    for(let cat in categoryData){
+        html += `<div class="summary-item"><h4>${cat}</h4><p>${categoryData[cat]}</p></div>`;
+    }
+
+    html += `</div></div>`;
+
+    html += `
+    <div class="summary-box">
+        <div class="summary-title">Size Wise Stock</div>
+        <div class="summary-grid">`;
+
+    for(let size in sizeData){
+        html += `<div class="summary-item"><h4>${size}</h4><p>${sizeData[size]}</p></div>`;
+    }
+
+    html += `</div></div>`;
+
+    document.getElementById("live-summary").innerHTML = html;
+}
+
+function populateDropdown(id, items){
+    const select = document.getElementById(id);
+    items.forEach(item=>{
+        const option = document.createElement("option");
+        option.value = item;
+        option.textContent = item;
+        select.appendChild(option);
+    });
+}
+
+function applyFilters(){
+    const params = new URLSearchParams();
+
+    ["article","colour","size","section","location"].forEach(id=>{
+        const val = document.getElementById(id).value;
+        if(val) params.append(id, val);
+    });
+
+    const search = document.getElementById("search").value;
+    if(search) params.append("search", search);
+
+    loadData("?" + params.toString());
+}
+
+function resetFilters(){
+    document.querySelectorAll("select").forEach(s=>s.value="");
+    document.getElementById("search").value="";
+    loadData();
+}
+
+document.querySelectorAll("select").forEach(s=>s.addEventListener("change", applyFilters));
+document.getElementById("search").addEventListener("input", applyFilters);
+
+document.getElementById("modal").onclick = function(){
+    this.style.display="none";
+};
+
+loadData();
+
+</script>
+
+</body>
+</html>

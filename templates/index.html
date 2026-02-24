@@ -10,6 +10,7 @@ body{
     font-family:Segoe UI;
     background:#0f0f0f;
     color:white;
+    overflow-x:hidden;
 }
 
 .header{
@@ -17,8 +18,24 @@ body{
     background:#1a1a1a;
     display:flex;
     flex-wrap:wrap;
-    gap:10px;
+    gap:12px;
     align-items:center;
+}
+
+/* Responsive Controls */
+.header input{
+    flex:1 1 220px;
+    min-width:180px;
+}
+
+.header select{
+    flex:1 1 160px;
+    min-width:140px;
+}
+
+.header button{
+    flex:0 0 auto;
+    min-width:100px;
 }
 
 select,input,button{
@@ -31,6 +48,22 @@ button{
     background:#00c6ff;
     font-weight:bold;
     cursor:pointer;
+}
+
+/* Mobile Optimization */
+@media (max-width:768px){
+
+    .header input{
+        flex:1 1 100%;
+    }
+
+    .header select{
+        flex:1 1 calc(50% - 6px);
+    }
+
+    .header button{
+        flex:1 1 100%;
+    }
 }
 
 .summary{
@@ -169,7 +202,6 @@ button{
 </div>
 
 <div id="live-summary"></div>
-
 <div class="products" id="products"></div>
 
 <div class="modal" id="modal">
@@ -177,7 +209,7 @@ button{
 </div>
 
 <script>
-
+// JS SAME AS YOUR ORIGINAL (UNCHANGED)
 let dropdownLoaded = false;
 
 async function loadData(params="") {
@@ -187,7 +219,6 @@ async function loadData(params="") {
 }
 
 function render(response){
-
     document.getElementById("total_stock").innerText = response.total_stock;
     document.getElementById("total_value").innerText = "₹ " + response.total_value;
     document.getElementById("total_articles").innerText = response.total_articles;
@@ -196,7 +227,6 @@ function render(response){
     container.innerHTML = "";
 
     response.data.forEach(row=>{
-
         const div = document.createElement("div");
         div.className = "product";
 
@@ -237,7 +267,6 @@ function render(response){
 }
 
 function renderLiveSummary(categoryData, sizeData){
-
     let html = `
     <div class="summary-box">
         <div class="summary-title">Category Wise Stock</div>
@@ -275,7 +304,6 @@ function populateDropdown(id, items){
 
 function applyFilters(){
     const params = new URLSearchParams();
-
     ["article","colour","size","section","location"].forEach(id=>{
         const val = document.getElementById(id).value;
         if(val) params.append(id, val);
@@ -301,7 +329,6 @@ document.getElementById("modal").onclick = function(){
 };
 
 loadData();
-
 </script>
 
 </body>

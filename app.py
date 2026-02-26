@@ -11,6 +11,12 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 DB_NAME = "database.db"
 
+# 🔥 IN-MEMORY CACHE (Ultra Fast Mode)
+inventory_cache = []
+category_cache = {}
+size_cache = {}
+summary_cache = {}
+
 # ---------------- DB ---------------- #
 
 def get_db_connection():

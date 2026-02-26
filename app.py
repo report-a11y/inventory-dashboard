@@ -52,7 +52,9 @@ def sync_from_google():
 
     while True:
         try:
+            print("🚀 Sync Started")
             records = sheet.get_all_records()
+            print("🔥 RECORDS LENGTH:", len(records))
 
             new_data = []
             category = {}

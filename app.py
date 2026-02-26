@@ -1,3 +1,5 @@
+import eventlet
+eventlet.monkey_patch()
 import sqlite3
 import threading
 import time

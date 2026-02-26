@@ -145,7 +145,8 @@ def filter_data():
     })
 
 # ---------------- MAIN ---------------- #
+# Start background sync always
+threading.Thread(target=sync_from_google, daemon=True).start()
 
 if __name__ == "__main__":
-    threading.Thread(target=sync_from_google, daemon=True).start()
     socketio.run(app, host="0.0.0.0", port=10000)

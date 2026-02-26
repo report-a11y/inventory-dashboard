@@ -31,6 +31,22 @@ def get_db_connection():
 def sync_from_google():
     global inventory_cache, category_cache, size_cache, summary_cache
 
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_file(
+        "credentials.json",
+        scopes=scope
+    )
+
+    client = gspread.authorize(creds)
+
+    sheet = client.open_by_key(
+        "1wdmwIggohcNH9qVUAu5IXFxNFfVft0Qz5U-CDWIXABU"
+    ).worksheet("Sheet9")
+
     while True:
         try:
             records = sheet.get_all_records()
@@ -43,7 +59,11 @@ def sync_from_google():
 
             for row in records:
                 total = int(row.get("Total") or 0)
-                value = float(row.get("CBS Value at MRP") or 0)
+
+                try:
+                    value = float(row.get("CBS Value at MRP") or 0)
+                except:
+                    value = 0
 
                 item = {
                     "article": row.get("Article No"),
@@ -61,10 +81,12 @@ def sync_from_google():
                 total_stock += total
                 total_value += value
 
-                category[item["section"]] = category.get(item["section"], 0) + total
-                size[item["size"]] = size.get(item["size"], 0) + total
+                if item["section"]:
+                    category[item["section"]] = category.get(item["section"], 0) + total
 
-            # 🔥 Update RAM cache
+                if item["size"]:
+                    size[item["size"]] = size.get(item["size"], 0) + total
+
             inventory_cache = new_data
             category_cache = category
             size_cache = size
@@ -73,14 +95,13 @@ def sync_from_google():
                 "total_value": total_value
             }
 
-            print("⚡ Cache Updated")
+            print("⚡ Cache Updated:", len(new_data), "items")
             socketio.emit("data_updated")
 
         except Exception as e:
             print("Sync Error:", e)
 
         time.sleep(120)
-
 # ---------------- ROUTES ---------------- #
 
 @app.route("/")

@@ -29,89 +29,57 @@ def get_db_connection():
 # ---------------- GOOGLE SYNC ---------------- #
 
 def sync_from_google():
-
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    creds = Credentials.from_service_account_file(
-        "credentials.json",
-        scopes=scope
-    )
-
-    client = gspread.authorize(creds)
-
-    sheet = client.open_by_key(
-        "1wdmwIggohcNH9qVUAu5IXFxNFfVft0Qz5U-CDWIXABU"
-    ).worksheet("Sheet9")
+    global inventory_cache, category_cache, size_cache, summary_cache
 
     while True:
         try:
             records = sheet.get_all_records()
 
-            conn = sqlite3.connect(DB_NAME, timeout=10)
-            cursor = conn.cursor()
-
-            cursor.execute("DELETE FROM inventory")
+            new_data = []
+            category = {}
+            size = {}
+            total_stock = 0
+            total_value = 0
 
             for row in records:
+                total = int(row.get("Total") or 0)
+                value = float(row.get("CBS Value at MRP") or 0)
 
-                total = row.get("Total")
-                value = row.get("CBS Value at MRP")
+                item = {
+                    "article": row.get("Article No"),
+                    "colour": row.get("Colour Name"),
+                    "size": row.get("Size Name"),
+                    "section": row.get("Sub Section Name"),
+                    "location": row.get("Location"),
+                    "total": total,
+                    "value": value,
+                    "image": row.get("Image URL")
+                }
 
-                total = int(total) if str(total).strip().isdigit() else 0
+                new_data.append(item)
 
-                try:
-                    value = float(value)
-                except:
-                    value = 0
+                total_stock += total
+                total_value += value
 
-                # ---------- FIX IMAGE HERE ----------
-                image_url = row.get("Image URL")
+                category[item["section"]] = category.get(item["section"], 0) + total
+                size[item["size"]] = size.get(item["size"], 0) + total
 
-                if image_url and "drive.google.com" in image_url:
+            # 🔥 Update RAM cache
+            inventory_cache = new_data
+            category_cache = category
+            size_cache = size
+            summary_cache = {
+                "total_stock": total_stock,
+                "total_value": total_value
+            }
 
-                    if "id=" in image_url:
-                        file_id = image_url.split("id=")[-1]
-
-                    elif "/d/" in image_url:
-                        file_id = image_url.split("/d/")[1].split("/")[0]
-
-                    else:
-                        file_id = None
-
-                    if file_id:
-                        image_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w1000"
-
-                # ------------------------------------
-
-                cursor.execute("""
-                    INSERT INTO inventory
-                    (article, colour, size, section, location, total, value, image)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row.get("Article No"),
-                    row.get("Colour Name"),
-                    row.get("Size Name"),
-                    row.get("Sub Section Name"),
-                    row.get("Location"),
-                    total,
-                    value,
-                    image_url
-                ))
-
-            conn.commit()
-            conn.close()
-
-            print("Synced Successfully ✅")
+            print("⚡ Cache Updated")
             socketio.emit("data_updated")
 
         except Exception as e:
             print("Sync Error:", e)
 
-        time.sleep(20)
-
+        time.sleep(120)
 
 # ---------------- ROUTES ---------------- #
 
@@ -122,114 +90,36 @@ def index():
 
 @app.route("/filter")
 def filter_data():
-
-    page = int(request.args.get("page", 1))
-    per_page = 50
-    offset = (page - 1) * per_page
-
+    search = request.args.get("search", "").lower()
     article = request.args.get("article")
     colour = request.args.get("colour")
     size = request.args.get("size")
     section = request.args.get("section")
     location = request.args.get("location")
-    search = request.args.get("search")
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    base_query = "FROM inventory WHERE 1=1"
-    params = []
-
-    if article:
-        base_query += " AND article=?"
-        params.append(article)
-
-    if colour:
-        base_query += " AND colour=?"
-        params.append(colour)
-
-    if size:
-        base_query += " AND size=?"
-        params.append(size)
-
-    if section:
-        base_query += " AND section=?"
-        params.append(section)
-
-    if location:
-        base_query += " AND location=?"
-        params.append(location)
+    filtered = inventory_cache
 
     if search:
-        base_query += """ AND (
-            article LIKE ? OR
-            colour LIKE ? OR
-            size LIKE ? OR
-            section LIKE ? OR
-            location LIKE ?
-        )"""
-        for _ in range(5):
-            params.append(f"%{search}%")
-
-    # -------- MAIN DATA -------- #
-    cursor.execute("SELECT * " + base_query + " ORDER BY article ASC LIMIT ? OFFSET ?", params + [per_page, offset])
-    rows = cursor.fetchall()
-    data = [dict(row) for row in rows]
-
-    # -------- SUMMARY -------- #
-    cursor.execute("SELECT SUM(total), SUM(value) " + base_query, params)
-    summary = cursor.fetchone()
-
-    total_stock = summary[0] or 0
-    total_value = summary[1] or 0
-
-    # -------- CATEGORY SUMMARY -------- #
-    cursor.execute("SELECT section, SUM(total) " + base_query + " GROUP BY section", params)
-    category_summary = {row[0]: row[1] for row in cursor.fetchall() if row[0]}
-
-    # -------- SIZE SUMMARY -------- #
-    cursor.execute("SELECT size, SUM(total) " + base_query + " GROUP BY size", params)
-    size_summary = {row[0]: row[1] for row in cursor.fetchall() if row[0]}
-
-    # -------- DROPDOWN DATA -------- #
-    cursor.execute("SELECT DISTINCT article FROM inventory")
-    articles = sorted([row[0] for row in cursor.fetchall() if row[0]])
-
-    cursor.execute("SELECT DISTINCT colour FROM inventory")
-    colours = sorted([row[0] for row in cursor.fetchall() if row[0]])
-
-    cursor.execute("SELECT DISTINCT size FROM inventory")
-    sizes = sorted([row[0] for row in cursor.fetchall() if row[0]])
-
-    cursor.execute("SELECT DISTINCT section FROM inventory")
-    sections = sorted([row[0] for row in cursor.fetchall() if row[0]])
-
-    cursor.execute("SELECT DISTINCT location FROM inventory")
-    locations = sorted([row[0] for row in cursor.fetchall() if row[0]])
-
-    # -------- TOTAL COUNT FOR PAGINATION -------- #
-    cursor.execute("SELECT COUNT(*) " + base_query, params)
-    total_rows = cursor.fetchone()[0]
-    total_pages = (total_rows // per_page) + (1 if total_rows % per_page else 0)
-
-    conn.close()
+        filtered = [i for i in filtered if search in str(i).lower()]
+    if article:
+        filtered = [i for i in filtered if i["article"] == article]
+    if colour:
+        filtered = [i for i in filtered if i["colour"] == colour]
+    if size:
+        filtered = [i for i in filtered if i["size"] == size]
+    if section:
+        filtered = [i for i in filtered if i["section"] == section]
+    if location:
+        filtered = [i for i in filtered if i["location"] == location]
 
     return jsonify({
-        "data": data,
-        "total_stock": total_stock,
-        "total_value": total_value,
-        "total_articles": len(data),
-        "category_summary": category_summary,
-        "size_summary": size_summary,
-        "articles": articles,
-        "colours": colours,
-        "sizes": sizes,
-        "sections": sections,
-        "locations": locations,
-        "page": page,
-        "total_pages": total_pages,
+        "data": filtered[:20],  # pagination
+        "total_stock": summary_cache.get("total_stock", 0),
+        "total_value": summary_cache.get("total_value", 0),
+        "total_articles": len(filtered),
+        "category_summary": category_cache,
+        "size_summary": size_cache
     })
-
 
 # ---------------- MAIN ---------------- #
 
